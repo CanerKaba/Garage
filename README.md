@@ -17,9 +17,17 @@ Ukjente deler er merket Ukjent og fylles inn når flere filer kommer.
 - [Kjerne domenemodell](#kjerne-domenemodell)
 - [Hovedflyter](#hovedflyter)
 - [API – Endepunkter](#api--endepunkter)
+- [Installasjon & kjøring](#installasjon--kjøring)
 - [Konfigurasjon](#konfigurasjon)
-- [Feilsøking](#feilsøking)
-- [Veikart](#veikart)
+- [Database](#database)
+- [Logging & overvåkning](#logging--overvåkning)
+- [Tester & CI/CD](#tester--cicd)
+- [Feilsøking](#feilsøking-kjente-fallgruver)
+- [Veikart / mangler](#veikart--mangler)
+- [Bilag: Signaler som overvåkes](#bilag-signaler-som-overvåkes-eksempler)
+- [Bilag: Forretningsregler](#bilag-forretningsregler-utdrag)
+- [Eksempelflyt](#eksempelflyt-test)
+
 
 
 ## Arkitektur
