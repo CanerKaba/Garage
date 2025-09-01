@@ -22,12 +22,11 @@ Ukjente deler er merket Ukjent og fylles inn når flere filer kommer.
 - [Database](#database)
 - [Logging & overvåkning](#logging--overvåkning)
 - [Tester & CI/CD](#tester--cicd)
-- [Feilsøking](#feilsøking-kjente-fallgruver)
+- [Feilsøking (kjente fallgruver)](#feilsøking-kjente-fallgruver)
 - [Veikart / mangler](#veikart--mangler)
 - [Bilag: Signaler som overvåkes](#bilag-signaler-som-overvåkes-eksempler)
 - [Bilag: Forretningsregler](#bilag-forretningsregler-utdrag)
 - [Eksempelflyt](#eksempelflyt-test)
-
 
 
 ## Arkitektur
