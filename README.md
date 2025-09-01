@@ -1,34 +1,51 @@
 # LOB Garage Door – Produksjonskontroller
 
-Dette repoet styrer produksjonen av garasjeporter på fabrikkgulvet: plukk/lagring, løfteanlegg, fresecelle og to robotceller. Systemet integrerer mot Dynamics 365 F&O (produksjonsordre, BOM, lager) og orkestrerer kjøringen via en bakgrunnstjeneste.
+Dette repoet styrer produksjonen av garasjeporter på fabrikkgulvet: plukk/lagring, løfteanlegg, fresecelle og to robotceller. Systemet integrerer mot Dynamics 365 F&O (produksjonsordre, BOM, lager) og eksponerer et ASP.NET Core Web API samt en Windows Service‐host. Periodiske oppgaver kjøres via bakgrunnstjenester (bl.a. ProductionStorageSupervisionService, som kjører hvert 2. sekund når AppEnvironmentConfig.Testing == false).
 
-**Status:** Utkast. Basert på disse filene:
-> - `Application/Services/ProductionExecutionService.cs`
-> - `LOBGarageDoorProductionControllerService/Controllers/OperationsController.cs`
-> - `LOBGarageDoorProductionControllerService/Controllers/SettingsController.cs`
-> - `LOBGarageDoorProductionControllerService/Controllers/SimulationController.cs`
+**Status:** Utkast – oppdatert med verifiserte kilder fra denne gjennomgangen.  
+**Bekreftet grunnlag (filer gjennomgått):**
 
-Ukjente deler er merket Ukjent og fylles inn når flere filer kommer.
+- LOBGarageDoorProductionController.Web/Controllers/OperationsController.cs
+- Application/Interfaces/ISettingsService.cs og Application/Services/InMemorySettingsService.cs
+- Application/Services/ProductionStorageSupervisionService.cs
+- Application/Interfaces/IWarehouseManagementService.cs
+- Domain/Entities/Production/ManualProductionItem.cs
+- Domain/Entities/Lift/LiftInput.cs (inkl. LiftLoadingInput, LiftUnloadingInput)
+- Domain/Entities/Production/ProductionStorageTransfer.cs
+- Infrastructure/Logging/LoggingService.cs og Domain/Entities/Configuration/LoggingBlobConfig.cs
+- LOBGarageDoorProductionController.Web/Program.cs
+
+**Ikke verifisert ennå (nevnt tidligere):**
+
+- Application/Services/ProductionExecutionService.cs
+- LOBGarageDoorProductionControllerService/Controllers/SettingsController.cs
+- LOBGarageDoorProductionControllerService/Controllers/SimulationController.cs
+
+Merk: Deler som avhenger av ikke-verifiserte filer er markert som TODO/Ukjent og fylles inn når filene er tilgjengelige.
 
 ## Innhold
 
 - [Arkitektur](#arkitektur)
 - [Teknologier og avhengigheter](#teknologier-og-avhengigheter)
-- [Kjerne domenemodell](#kjerne-domenemodell)
-- [Hovedflyter](#hovedflyter)
+- [Kjerne domenemodell (DTO-er)](#kjerne-domenemodell-dto-er)
 - [API – Endepunkter](#api--endepunkter)
-- [Installasjon & kjøring](#installasjon--kjøring)
 - [Konfigurasjon](#konfigurasjon)
-- [Database](#database)
-- [Logging & overvåkning](#logging--overvåkning)
-- [Tester & CI/CD](#tester--cicd)
+- [Program & pipeline (Web)](#program--pipeline-web)
+- [Data-tilkoblinger (EF DbContext)](#data-tilkoblinger-ef-dbcontext)
+- [Bakgrunnsjobber](#bakgrunnsjobber)
+- [Logging](#logging)
+- [Sikkerhet](#sikkerhet)
+- [Installasjon & kjøring](#installasjon--kjøring)
 - [Feilsøking (kjente fallgruver)](#feilsøking-kjente-fallgruver)
-- [Veikart / mangler](#veikart--mangler)
-- [Bilag: Signaler som overvåkes](#bilag-signaler-som-overvåkes-eksempler)
-- [Bilag: Forretningsregler](#bilag-forretningsregler-utdrag)
-- [Eksempelflyt](#eksempelflyt-test)
+- [Videre arbeid / mangler](#videre-arbeid--mangler)
+- [Bilag A – DTO-referanse](#bilag-a--dto-referanse)
+- [Bilag B – Eksempelflyt (test)](#bilag-b--eksempelflyt-test)
 
 
+
+## Arkitektur
+
+## Arkitektur
 ## Arkitektur
 
 ```mermaid
@@ -38,8 +55,9 @@ flowchart LR
     end
 
     subgraph Service["Service-prosjekt (ASP.NET Core)"]
-      API[["HTTP API\n(Operations, Settings, Simulation)"]]
-      Hosted["ProductionExecutionService\n(BackgroundService)"]
+      API[["HTTP API<br/>(Operations, Settings, Simulation)"]]
+      ExecSvc["ProductionExecutionService<br/>(BackgroundService)"]
+      ProdStorageSup["ProductionStorageSupervisionService<br/>(BackgroundService – 2s når Testing==false)"]
     end
 
     subgraph Application["Application-laget"]
@@ -50,21 +68,21 @@ flowchart LR
       RobFile["RobotFileProcessingService"]
       D365Data["ID365DataProcessingService"]
       D365Act["ID365ActionProcessingService"]
-      WMS["WarehouseManagementService"]
+      WMS["IWarehouseManagementService"]
       IO["IRobotOutboundMessageProcessingService"]
-      Settings["ISettingsService\n(runtime state)"]
-      Log["ILoggingService"]
+      Settings["ISettingsService<br/>(InMemorySettingsService)"]
+      Log["ILoggingService<br/>(LoggingService – Azure Blob)"]
       MillSvc["IMillingMachineService"]
     end
 
     subgraph Domain
-      Entities["Entities:\nProduction, Lift, Robot, MillingMachine,\nConfiguration"]
-      Enums["Enums"]
+      Entities["Entities:<br/>Production, Lift, Robot, MillingMachine,<br/>Configuration"]
+      DTOs["DTO-er:<br/>ManualProductionItem,<br/>LiftInput (Loading/Unloading),<br/>ProductionStorageTransfer"]
     end
 
     subgraph Integrations
       D365["Dynamics 365 F&O"]
-      Robots["Robotceller\n10.5.15.21 (R1)\n10.5.15.73 (R2)"]
+      Robots["Robotceller<br/>10.5.15.21 (R1)<br/>10.5.15.73 (R2)"]
       Milling["Fresemaskin"]
       Storage["Lager/WMS"]
       Files["CSV / Filutveksling"]
@@ -72,11 +90,13 @@ flowchart LR
 
     Operator --> API
     API --> Settings
-    API --> Hosted
-    Hosted --> Application
+    API --> ExecSvc
+    API --> ProdStorageSup
+    ExecSvc --> Application
+    ProdStorageSup --> Application
     Application --> Domain
     Application --> Integrations
-    Hosted <--> IO
+    ExecSvc <--> IO
 ```
 
 ### Roller og ansvar (utdrag)
