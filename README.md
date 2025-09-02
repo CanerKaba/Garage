@@ -1,51 +1,68 @@
 # LOB Garage Door – Produksjonskontroller
 
-Dette repoet styrer produksjonen av garasjeporter på fabrikkgulvet: plukk/lagring, løfteanlegg, fresecelle og to robotceller. Systemet integrerer mot Dynamics 365 F&O (produksjonsordre, BOM, lager) og eksponerer et ASP.NET Core Web API samt en Windows Service‐host. Periodiske oppgaver kjøres via bakgrunnstjenester (bl.a. ProductionStorageSupervisionService, som kjører hvert 2. sekund når AppEnvironmentConfig.Testing == false).
+Styrer produksjonen av garasjeporter på fabrikkgulvet: plukk/lagring, løfteanlegg, fresecelle og to robotceller.
+Systemet integrerer mot Dynamics 365 F&O (produksjonsordre, BOM, lager), samt roboter og fres via signaler og CSV-filer.
+Kjøringen orkestreres av en ASP.NET Core-basert bakgrunnstjeneste, støttet av et HTTP API for operatørstyring.
 
 **Status:** Utkast – oppdatert med verifiserte kilder fra denne gjennomgangen.  
 **Bekreftet grunnlag (filer gjennomgått):**
 
-- LOBGarageDoorProductionController.Web/Controllers/OperationsController.cs
-- Application/Interfaces/ISettingsService.cs og Application/Services/InMemorySettingsService.cs
-- Application/Services/ProductionStorageSupervisionService.cs
-- Application/Interfaces/IWarehouseManagementService.cs
-- Domain/Entities/Production/ManualProductionItem.cs
-- Domain/Entities/Lift/LiftInput.cs (inkl. LiftLoadingInput, LiftUnloadingInput)
-- Domain/Entities/Production/ProductionStorageTransfer.cs
-- Infrastructure/Logging/LoggingService.cs og Domain/Entities/Configuration/LoggingBlobConfig.cs
-- LOBGarageDoorProductionController.Web/Program.cs
+Application/Services/ProductionExecutionService.cs
 
-**Ikke verifisert ennå (nevnt tidligere):**
+LOBGarageDoorProductionControllerService/Controllers/OperationsController.cs
 
-- Application/Services/ProductionExecutionService.cs
-- LOBGarageDoorProductionControllerService/Controllers/SettingsController.cs
-- LOBGarageDoorProductionControllerService/Controllers/SimulationController.cs
+LOBGarageDoorProductionControllerService/Controllers/SettingsController.cs
 
-Merk: Deler som avhenger av ikke-verifiserte filer er markert som TODO/Ukjent og fylles inn når filene er tilgjengelige.
+LOBGarageDoorProductionControllerService/Controllers/SimulationController.cs
+
+Domain/Entities/Lift/LiftLoadingInput.cs, LiftUnloadingInput.cs
+
+Domain/Entities/Production/ManualProductionItem.cs, ProductionStorageTransfer.cs
+
+Application/Interfaces/ISettingsService.cs
+
+Application/General/TestSignalsList.cs
+
+Program.cs (test/debug-støtte)
+
+
 
 ## Innhold
 
-- [Arkitektur](#arkitektur)
-- [Teknologier og avhengigheter](#teknologier-og-avhengigheter)
-- [Kjerne domenemodell (DTO-er)](#kjerne-domenemodell-dto-er)
-- [API – Endepunkter](#api--endepunkter)
-- [Konfigurasjon](#konfigurasjon)
-- [Program & pipeline (Web)](#program--pipeline-web)
-- [Data-tilkoblinger (EF DbContext)](#data-tilkoblinger-ef-dbcontext)
-- [Bakgrunnsjobber](#bakgrunnsjobber)
-- [Logging](#logging)
-- [Sikkerhet](#sikkerhet)
-- [Installasjon & kjøring](#installasjon--kjøring)
-- [Feilsøking (kjente fallgruver)](#feilsøking-kjente-fallgruver)
-- [Videre arbeid / mangler](#videre-arbeid--mangler)
-- [Bilag A – DTO-referanse](#bilag-a--dto-referanse)
-- [Bilag B – Eksempelflyt (test)](#bilag-b--eksempelflyt-test)
+Arkitektur
+
+Teknologier og avhengigheter
+
+Kjerne domenemodell
+
+Hovedflyter
+
+API – Endepunkter
+
+Installasjon & kjøring
+
+Konfigurasjon
+
+Database
+
+Logging & overvåkning
+
+Tester & CI/CD
+
+Feilsøking (kjente fallgruver)
+
+Veikart / mangler
+
+Bilag: Signaler som overvåkes
+
+Bilag: Forretningsregler
+
+Bilag: DTOer brukt i API
+
+Eksempelflyt
 
 
 
-## Arkitektur
-
-## Arkitektur
 ## Arkitektur
 
 ```mermaid
@@ -55,9 +72,8 @@ flowchart LR
     end
 
     subgraph Service["Service-prosjekt (ASP.NET Core)"]
-      API[["HTTP API<br/>(Operations, Settings, Simulation)"]]
-      ExecSvc["ProductionExecutionService<br/>(BackgroundService)"]
-      ProdStorageSup["ProductionStorageSupervisionService<br/>(BackgroundService – 2s når Testing==false)"]
+      API[["HTTP API\n(Operations, Settings, Simulation)"]]
+      Hosted["ProductionExecutionService\n(BackgroundService)"]
     end
 
     subgraph Application["Application-laget"]
@@ -68,21 +84,22 @@ flowchart LR
       RobFile["RobotFileProcessingService"]
       D365Data["ID365DataProcessingService"]
       D365Act["ID365ActionProcessingService"]
-      WMS["IWarehouseManagementService"]
+      WMS["WarehouseManagementService"]
       IO["IRobotOutboundMessageProcessingService"]
-      Settings["ISettingsService<br/>(InMemorySettingsService)"]
-      Log["ILoggingService<br/>(LoggingService – Azure Blob)"]
+      Settings["ISettingsService\n(runtime state)"]
+      Log["ILoggingService"]
       MillSvc["IMillingMachineService"]
+      TestSignals["TestSignalsList\n(simulerte signaler)"]
     end
 
     subgraph Domain
-      Entities["Entities:<br/>Production, Lift, Robot, MillingMachine,<br/>Configuration"]
-      DTOs["DTO-er:<br/>ManualProductionItem,<br/>LiftInput (Loading/Unloading),<br/>ProductionStorageTransfer"]
+      Entities["Entities:\nProduction, Lift, Robot, MillingMachine,\nConfiguration"]
+      Enums["Enums"]
     end
 
     subgraph Integrations
       D365["Dynamics 365 F&O"]
-      Robots["Robotceller<br/>10.5.15.21 (R1)<br/>10.5.15.73 (R2)"]
+      Robots["Robotceller\n10.5.15.21 (R1)\n10.5.15.73 (R2)"]
       Milling["Fresemaskin"]
       Storage["Lager/WMS"]
       Files["CSV / Filutveksling"]
@@ -90,54 +107,127 @@ flowchart LR
 
     Operator --> API
     API --> Settings
-    API --> ExecSvc
-    API --> ProdStorageSup
-    ExecSvc --> Application
-    ProdStorageSup --> Application
+    API --> Hosted
+    Hosted --> Application
     Application --> Domain
     Application --> Integrations
-    ExecSvc <--> IO
+    Hosted <--> IO
+    Hosted --> TestSignals
+
 ```
 
 ### Roller og ansvar (utdrag)
 
-ProductionExecutionService: Sentralt orkestreringsloop (2s intervall). Leser state fra ISettingsService, henter produksjonsordre (manuell/automatisk), genererer filer for Robot1/Robot2 og fresecelle, håndterer håndtrykk via IO-signaler.
+ProductionExecutionService: Sentralt orkestreringsloop (2s intervall). Leser state fra ISettingsService, henter produksjonsordre (manuell/automatisk), genererer CSV-filer for Robot1/Robot2 og fresecelle, håndterer el-signal-synkronisering via IRobotOutboundMessageProcessingService.
 
-HTTP API: Kontroller for operatør-kommandoer (Operations), driftsmodi (Settings) og simulering i testmiljø (Simulation).
+HTTP API: Eksponerer Operations, Settings og Simulation kontrollere. Operatør-kommandoer, tilstandsendringer og testsetting.
 
-Integrasjoner:
+Runtime state (Settings): Lagres i minne med ISettingsService, tilgjengelig via nøkkelbasert API. Brukes til både booleans, tellere og lister (eks: ManualProductionItems).
 
-D365 Data/Action (lese BOM/picklist, opprette/starte ordre)
+Testsignaler: TestSignalsList gir simulerte signaler for utvikling/test. Kontrollert via SimulationController.
+Typiske signaler: DOF_OkToSendNewCsvFilesRob1, DOF_OrderDone, strLiftCommand, numElementLength.
 
-WMS (plukk-/tray-posisjon, lagerkvantum)
+Robot-integrasjon:
 
-Robot IO (digitale signaler) + CSV-filutveksling
+CSV-generering (via RobotFileProcessingService)
 
-Fresemaskin (filutveksling)
+Direkte signal-/variable-skriving (via CloudToRobotHandler), krever mastership per IP.
 
+D365-integrasjon:
+
+Ordrehåndtering: StartProduction(...), CreatePurchaseOrder(...)
+
+Lager: UpdateWMSLocation(...), GetPickList(...), AdjustOnHandQty(...)
+
+Journalføring: UpdateTransferJournal(...)
 ## Teknologier og avhengigheter
 
 - **.NET / ASP.NET Core**  
-  Brukes til Hosted Service (BackgroundService) og Web API (Controllers).
+  Brukes til både Hosted Service (`ProductionExecutionService`) og Web API (`Controllers`).
 
 - **Dynamics 365 F&O**  
-  Integrasjon for produksjonsordre, BOM og lager (data og handlinger).
+  Integrasjon for produksjonsordre, BOM og lager.  
+  Støtter operasjoner som `StartProduction`, `CreatePurchaseOrder`, `GetPickList`, `UpdateTransferJournal`, `AdjustOnHandQty`.
+
+- **WMS (Warehouse Management System)**  
+  Benyttes til å hente tray-posisjoner, sjekke beholdning og foreslå retur-lokasjoner.
+
+- **CSV / filutveksling**  
+  Robot1/Robot2 og fresemaskin mottar filer i CSV-format.  
+  Format og stier settes via konfigurasjon (`RobotFileProcessingService`, `MillingMachineFileProcessingService`).
+
+- **Digitale IO-signaler**  
+  Roboter og fres kommuniserer via boolske signaler, eksponert gjennom `IRobotOutboundMessageProcessingService`.
+
+- **Testmiljø**  
+  Ved `Testing == true` brukes `TestSignalsList`, der signaler simuleres og styres via `SimulationController`.
 
 - **Egendefinerte applikasjonstjenester**
   - `IRobotOutboundMessageProcessingService` – IO-signal mot roboter  
   - `IRobotFileProcessingService` – generering/lesing av robotfiler (CSV)  
   - `IMillingMachineFileProcessingService` – filutveksling mot fres  
-  - `IMillingMachineService` – logikk knyttet til fres og kutt  
-  - `IWarehouseManagementService` – håndtering av lagerplass og tray-posisjon  
-  - `IProductionFunctionsService` – oppdatering av produksjonsstatus og funksjoner  
-  - `ID365DataProcessingService` – lesing av BOM/picklist fra D365  
-  - `ID365ActionProcessingService` – opprette og starte ordre i D365  
-  - `ISettingsService` – runtime state (boolean flags, lister, konfig)  
+  - `IMillingMachineService` – freselogikk og deling av paneler  
+  - `IWarehouseManagementService` – tray- og lagerhåndtering  
+  - `IProductionFunctionsService` – statusoppdateringer i produksjon  
+  - `ID365DataProcessingService` – lesing av produksjonsdata fra D365  
+  - `ID365ActionProcessingService` – oppretting og igangsetting av ordre  
+  - `ISettingsService` – runtime state (bools, lister, konfig)  
   - `ILoggingService` – logging av hendelser
 
-- **Konfigurasjon**
-  - Via `IOptions<AppEnvironmentConfig>`  
-  - Feltet **Testing** styrer om ekte signaler brukes eller `TestSignalsList` (simulering).
+## Kjerne domenemodell
+
+```mermaid
+ChatGPT sa:
+
+Harika. Şimdi elimizdeki bilgiler doğrultusunda sadece eksikleri tamamlayacak, yanlışları düzeltecek ve fazla teknik ya da gereksiz olanı sadeleştireceğiz.
+
+Güncelleyeceğim bölümler:
+
+## Teknologier og avhengigheter
+
+## Kjerne domenemodell
+
+Ve bunu mevcut taslağın doğruluğunu koruyarak, geliştirme ilkesiyle yapacağım.
+
+✅ Güncellenmiş: Teknologier og avhengigheter
+## Teknologier og avhengigheter
+
+- **.NET / ASP.NET Core**  
+  Brukes til både Hosted Service (`ProductionExecutionService`) og Web API (`Controllers`).
+
+- **Dynamics 365 F&O**  
+  Integrasjon for produksjonsordre, BOM og lager.  
+  Støtter operasjoner som `StartProduction`, `CreatePurchaseOrder`, `GetPickList`, `UpdateTransferJournal`, `AdjustOnHandQty`.
+
+- **WMS (Warehouse Management System)**  
+  Benyttes til å hente tray-posisjoner, sjekke beholdning og foreslå retur-lokasjoner.
+
+- **CSV / filutveksling**  
+  Robot1/Robot2 og fresemaskin mottar filer i CSV-format.  
+  Format og stier settes via konfigurasjon (`RobotFileProcessingService`, `MillingMachineFileProcessingService`).
+
+- **Digitale IO-signaler**  
+  Roboter og fres kommuniserer via boolske signaler, eksponert gjennom `IRobotOutboundMessageProcessingService`.
+
+- **Testmiljø**  
+  Ved `Testing == true` brukes `TestSignalsList`, der signaler simuleres og styres via `SimulationController`.
+
+- **Egendefinerte applikasjonstjenester**
+  - `IRobotOutboundMessageProcessingService` – IO-signal mot roboter  
+  - `IRobotFileProcessingService` – generering/lesing av robotfiler (CSV)  
+  - `IMillingMachineFileProcessingService` – filutveksling mot fres  
+  - `IMillingMachineService` – freselogikk og deling av paneler  
+  - `IWarehouseManagementService` – tray- og lagerhåndtering  
+  - `IProductionFunctionsService` – statusoppdateringer i produksjon  
+  - `ID365DataProcessingService` – lesing av produksjonsdata fra D365  
+  - `ID365ActionProcessingService` – oppretting og igangsetting av ordre  
+  - `ISettingsService` – runtime state (bools, lister, konfig)  
+  - `ILoggingService` – logging av hendelser
+
+✅ Güncellenmiş: Kjerne domenemodell
+
+Yeni DTO'lar (LiftLoadingInput, LiftUnloadingInput, ManualProductionItem, ProductionStorageTransfer) ışığında diyagramı genişletiyoruz ama orijinal yapıyı bozmuyoruz.
+Yeni sınıflar bağımlı nesne olarak eklenecek (sadece etkilendiği kadar).
 
 ## Kjerne domenemodell
 
@@ -195,71 +285,160 @@ class Robot1Input
 class Robot2Input
 class MillingMachineInput
 
+class LiftLoadingInput {
+  string Location
+  string ItemId
+  string Length
+  string Profile
+  string BatchId
+  double InventQty
+}
+
+class LiftUnloadingInput {
+  string Location
+  string ItemId
+  string Length
+  bool Scrap
+  string BatchId
+  double InventQty
+}
+
+class ManualProductionItem {
+  string ProdId
+  string Rawlength
+  string Precut
+  string Endspacing
+  double QtyScheduled
+  bool Reproduction
+}
+
+class ProductionStorageTransfer {
+  string JournalId
+  string Barcode
+  string Total
+  string Usable
+}
+
 CurrentProductionOrder "1" o-- "many" PickLocation
 PickLocation "1" o-- "many" ProductionOrderBillOfMaterialLine
 Robot1Input ..> CurrentProductionOrder
 Robot2Input ..> CurrentProductionOrder
 MillingMachineInput ..> CurrentProductionOrder
 ElementPart ..> Robot2Input
+
+LiftLoadingInput ..> CurrentProductionOrder
+LiftUnloadingInput ..> CurrentProductionOrder
+ManualProductionItem ..> CurrentProductionOrder
+ProductionStorageTransfer ..> CurrentProductionOrder
 ```
 
-Merk: Eksakte felter for LiftLoadingInput, LiftUnloadingInput, ManualProductionItem, ProductionStorageTransfer er Ukjent (krever domene-filer).
+Merk: Feltstruktur for enkelte hjelpeklasser er forenklet for oversiktens skyld.
 
 ## Hovedflyter
 
 Systemet støtter to produksjonsmodi: **manuell** og **automatisk**.  
-En sentral bakgrunnstjeneste (`ProductionExecutionService`) orkestrerer prosessen i tre hovedfaser:
+En sentral bakgrunnstjeneste (`ProductionExecutionService`) orkestrerer prosessen i tre hovedfaser, med 2 sekunders intervall.
+
+---
 
 ### A) Valg av produksjon
-- **Robotklar-sjekk**:  
-  `IsRobot1ReadyAsync()` verifiserer signalet `DOF_OkToSendNewCsvFiles` fra robotcelle R1 (IP 10.5.15.21).  
-  I testmiljø brukes `TestSignalsList.DOF_OkToSendNewCsvFilesRob1`.
 
-- **Manuell produksjon**:  
-  Dersom det finnes en batch i `Settings["ManualProductionItems"]`, hentes ordren via `GetManualProduction()` og bygges opp med data fra D365 & WMS.
+- **Robotklar-sjekk**  
+  Utføres ved å lese signalet `DOF_OkToSendNewCsvFilesRob1` fra robotcelle R1 (`10.5.15.21`).  
+  I testmiljø leses verdien fra `TestSignalsList.DOF_OkToSendNewCsvFilesRob1`.
 
-- **Automatisk produksjon**:  
-  Hvis `Settings["StartAutomaticExecution"] == true` → `GetProduction()` henter neste ordre fra D365.  
-  Dersom lagret ikke har nok seksjoner, økes `skipCount` og det logges tydelig melding om behov for etterfylling.
+- **Manuell produksjon**  
+  Dersom `Settings["ManualProductionItems"]` (type `List<List<ManualProductionItem>>`) inneholder batcher:  
+  → `GetManualProduction()` henter og validerer data fra D365 og WMS.  
+  Hver `ManualProductionItem` inneholder blant annet:
+  - `ProdId`, `Rawlength`, `QtyScheduled`, `Reproduction`, `Location`, `Port`.
 
-### B) Kjøre en ordre (ProcessProduction)
-- Start ordre i D365 ved behov:  
-  `ProductionFunctionsService.UpdateProductionStatus(header, 1)`.
+- **Automatisk produksjon**  
+  Hvis `Settings["StartAutomaticExecution"] == true` og R1-signal OK:  
+  → `GetProduction()` forsøker å hente neste tilgjengelige ordre.  
+  Ved manglende lagerkvantum, økes `skipCount`, og systemet logger melding:  
+  _"Not enough sections… Please refill storage."_
 
-- For hver **PickLocation**:  
-  - Bestem lager/posisjon (Lift1/Lift2/Kxx/Jxx).  
-  - Beregn lift-streng via `LiftService.CreateLiftString`.  
-  - Bygg `Robot1Input`.
+---
 
-- Skriv Robot1 CSV:  
-  `RobotFileProcessingService.CreateRobot1File(...)`.
+### B) Kjøre en ordre (`ProcessProduction`)
 
-- Vent på **Robot2-klar signal** (`DOF_OkToSendNewCsvFiles`) fra robotcelle R2 (IP 10.5.15.73).  
-  I testmiljø: `TestSignalsList.DOF_OkToSendNewCsvFilesRob2`.
+- **Oppdater ordrestatus i D365**  
+  Utføres via `ProductionFunctionsService.UpdateProductionStatus(header, 1)`.
 
-- Gå til fressecelle: `ProcessMillingCellData`.
+- **For hver PickLocation i ordren**  
+  - Lagerlokasjon identifiseres (Lift1, Lift2, Kxx, Jxx...)  
+  - `LiftService.CreateLiftString(...)` genererer løftekommando.  
+  - `Robot1Input` bygges og skrives til CSV via `RobotFileProcessingService.CreateRobot1File(...)`.
 
-### C) Fressecelle / Robot2 (ProcessMillingCellData)
-- Del panel i `ElementPart` (precut/finished/return/scrap) basert på mål, åpning, farge (til maling) og klemberegning (`MillingMachineService.CalculateClampsUsed`).
+- **Skriving av filer**  
+  - Robot1: CSV genereres og sendes til angitt mappe i `appsettings.json`.  
+  - Robot2 og fresefiler venter til neste fase.
 
-- **KASSETT-typer**:  
-  Egen precut-beregning (`CalculatePreCutKassett` / `CalculatePreCutElegantKassett`).
+---
 
-- **Håndtering av rester**:
-  - ≥ 2400 mm → retur til lager (store location)  
-  - 1200–2399 mm → retur  
-  - < 1200 mm → skrot
+### C) Fressecelle og Robot2 (`ProcessMillingCellData`)
 
-- **Dør fra restlengde**:  
-  Hvis aktiv (dvs. `DoorProductionInactive == false`) og rester 754–2399 mm → `CreateDoorProductions` oppretter nye dørordre i D365 og starter dem.
+- **Signal-synkronisering**  
+  Utføres kun dersom signalet `DOF_OkToSendNewCsvFilesRob2 == true` (R2: `10.5.15.73`)  
+  – eller `TestSignalsList.DOF_OkToSendNewCsvFilesRob2` i testmodus.
 
-- **Skriv filer**:  
-  - Fres: `MillingMachineFileProcessingService.CreateMillingFile(...)`  
-  - Robot2: `RobotFileProcessingService.CreateRobot2File(...)`
+- **Panel-deling og klassifisering**  
+  Panelet analyseres og deles i `ElementPart` basert på:
+  - Lengde (`FinishLength`)
+  - Klembehov (`ClampsRequired`)
+  - Om det skal til maling (`ToPainting`)
+
+- **Spesialregler for KASSETT-dører**  
+  – Egne metoder som `CalculatePreCutKassett()` og `CalculateClampsUsed()` brukes.
+
+- **Artikkelrester håndtering**  
+  - `≥ 2400 mm` → retur til lager  
+  - `1200–2399 mm` → retur (manuelt?)  
+  - `< 1200 mm` → skrot
+
+- **Dør fra rest (valgfritt)**  
+  Hvis `Settings["DoorProductionInactive"] == false` og rest = 754–2399 mm →  
+  → `CreateDoorProductions(...)` lager ny dørordre i D365 og starter den.
+
+- **Skriving av filer**  
+  - Fresefil: `MillingMachineFileProcessingService.CreateMillingFile(...)`  
+  - Robot2-fil: `RobotFileProcessingService.CreateRobot2File(...)`
+
+---
+
+### D) Støtteflyter og vedlikehold
+
+- **Løfteoperasjoner** (via API)
+  - `LiftLoadingInput`, `LiftUnloadingInput` sendes fra operatør til `ISettingsService`, og prosesseres i bakgrunnen.
+  - Eksempel på input: `Location`, `ItemId`, `Length`, `Profile`, `InventQty`, `Scrap`.
+
+- **Produksjonsoverføring**  
+  - `ProductionStorageTransfer` objekter legges i `Settings["ProductionStorageTransferList"]`  
+  - Brukes f.eks. til retur fra fres eller intern flytting.
+
+- **Runtime state**  
+  Alle verdier og lister lagres midlertidig i `ISettingsService`.  
+  API-er (`/Operations`, `/Settings`) leser og oppdaterer disse kontinuerlig.
+
+- **Testmodus**  
+  Ved `AppEnvironmentConfig.Testing == true`:  
+  - Signaler og variabler styres via `SimulationController` og `TestSignalsList`.  
+  - Alle produksjonsflyter kan kjøres uten fysisk tilkobling.
+
+---
+
+> Merk: Alle lister (`ManualProductionItems`, `LiftLoadingList`, osv.) må initialiseres som tomme ved oppstart, ellers kan `NullReferenceException` forekomme.
+
 
 ## API – Endepunkter
 
-### OperationsController (`/Operations`)
+Systemet eksponerer tre hovedkontrollere: `Operations`, `Settings`, og `Simulation`.  
+Alle endepunkter er HTTP-baserte (JSON inn/ut) og benytter `ISettingsService` til runtime state-håndtering.
+
+---
+
+### 🧭 OperationsController (`/Operations`)
 
 | Metode | Rute                    | Body                        | Retur  | Beskrivelse                                                                 |
 |--------|-------------------------|-----------------------------|--------|-----------------------------------------------------------------------------|
@@ -268,16 +447,68 @@ En sentral bakgrunnstjeneste (`ProductionExecutionService`) orkestrerer prosesse
 | POST   | /LoadingLiftKassett     | List<LiftLoadingInput>      | –      | Laster kassett-innlastinger.                                               |
 | POST   | /ManualUnloadingLift    | List<LiftUnloadingInput>    | –      | Legger manuelle utlastinger.                                               |
 | GET    | /GetFeedback            | –                           | string | Returnerer konsolidert loggtekst.                                          |
-| POST   | /ManualProduction       | List<ManualProductionItem>  | –      | Legger en batch i køen `ManualProductionItems` (`List<List<...>>`).        |
+| POST   | /ManualProduction       | List<List<ManualProductionItem>> | –  | Legger en batch i køen `ManualProductionItems`.                            |
 | POST   | /ProductionStorageTransfer | ProductionStorageTransfer | –      | Legger overføring i `ProductionStorageTransferList`.                       |
 
-**Eksempel (plassholder):**
+#### Eksempel: `/Operations/ManualProduction`
 
-```bash
-curl -X POST http://<host>/Operations/ManualProduction \
--H "Content-Type: application/json" \
--d '[ { /* ManualProductionItem */ } ]'
-```
+```json
+[
+  [
+    {
+      "ProdId": "116024",
+      "Rawlength": "3050",
+      "Precut": "2850",
+      "Endspacing": "100",
+      "LineNumber": "2",
+      "Location": "K01AA01",
+      "Port": "Port1",
+      "Reproduction": false,
+      "QtyScheduled": 3,
+      "QtyStarted": 0
+    }
+  ]
+]
+
+Eksempel: /Operations/ManualLoadingLift
+[
+  {
+    "Location": "LIFT1",
+    "ItemId": "200050",
+    "ItemName": "Profil A",
+    "Length": "2600",
+    "Endspacing": "50",
+    "Profile": "ELEGANT",
+    "Select": true,
+    "BatchId": "B-2025-0910",
+    "InventQty": 5.0,
+    "SizeId": "6000"
+  }
+]
+
+Eksempel: /Operations/ManualUnloadingLift
+[
+  {
+    "Location": "LIFT2",
+    "ItemId": "113798",
+    "ItemName": "Sprosse B",
+    "Length": "1800",
+    "Profile": "MODERN",
+    "Select": true,
+    "Scrap": false,
+    "BatchId": "B-2025-0905",
+    "InventQty": 1.0,
+    "SizeId": "5240"
+  }
+]
+
+Eksempel: /Operations/ProductionStorageTransfer
+{
+  "JournalId": "TRX-142076",
+  "Barcode": "113798-5240",
+  "Total": "5",
+  "Usable": "3"
+}
 
 ### SettingsController (`/Settings`)
 
@@ -301,8 +532,12 @@ curl -X POST http://<host>/Operations/ManualProduction \
 | GET    | /SignalValue/{signal}         | –      | bool   | Leser boolsk testsignal. |
 | POST   | /SignalValue/{signal}         | bool   | –      | Setter boolsk testsignal. |
 
-**Typiske signaler i test:**  
-`DOF_OkToSendNewCsvFilesRob1`, `DOF_OkToSendNewCsvFilesRob2`
+Eksempel: Sett DOF_OkToSendNewCsvFilesRob1 til true
+curl -X POST http://<host>/Simulation/SignalValue/DOF_OkToSendNewCsvFilesRob1 \
+-H "Content-Type: application/json" -d true
+
+📌 Merk: Alle API-operasjoner leser/oppdaterer nøkkler i ISettingsService.
+Listebaserte nøkler (ManualProductionItems, LiftLoadingList osv.) må initialiseres som tomme lister ved oppstart.
 
 ## Installasjon & kjøring
 
