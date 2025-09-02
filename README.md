@@ -174,22 +174,6 @@ Journalføring: UpdateTransferJournal(...)
   - `ISettingsService` – runtime state (bools, lister, konfig)  
   - `ILoggingService` – logging av hendelser
 
-## Kjerne domenemodell
-
-```mermaid
-ChatGPT sa:
-
-Harika. Şimdi elimizdeki bilgiler doğrultusunda sadece eksikleri tamamlayacak, yanlışları düzeltecek ve fazla teknik ya da gereksiz olanı sadeleştireceğiz.
-
-Güncelleyeceğim bölümler:
-
-## Teknologier og avhengigheter
-
-## Kjerne domenemodell
-
-Ve bunu mevcut taslağın doğruluğunu koruyarak, geliştirme ilkesiyle yapacağım.
-
-✅ Güncellenmiş: Teknologier og avhengigheter
 ## Teknologier og avhengigheter
 
 - **.NET / ASP.NET Core**  
@@ -224,10 +208,6 @@ Ve bunu mevcut taslağın doğruluğunu koruyarak, geliştirme ilkesiyle yapaca�
   - `ISettingsService` – runtime state (bools, lister, konfig)  
   - `ILoggingService` – logging av hendelser
 
-✅ Güncellenmiş: Kjerne domenemodell
-
-Yeni DTO'lar (LiftLoadingInput, LiftUnloadingInput, ManualProductionItem, ProductionStorageTransfer) ışığında diyagramı genişletiyoruz ama orijinal yapıyı bozmuyoruz.
-Yeni sınıflar bağımlı nesne olarak eklenecek (sadece etkilendiği kadar).
 
 ## Kjerne domenemodell
 
@@ -451,13 +431,12 @@ Alle endepunkter er HTTP-baserte (JSON inn/ut) og benytter `ISettingsService` ti
 | POST   | /ProductionStorageTransfer | ProductionStorageTransfer | –      | Legger overføring i `ProductionStorageTransferList`.                       |
 
 #### Eksempel: `/Operations/ManualProduction`
-
 ```json
 [
   [
     {
       "ProdId": "116024",
-      "Rawlength": "3050",
+      "Rawlength": "3508",
       "Precut": "2850",
       "Endspacing": "100",
       "LineNumber": "2",
@@ -469,8 +448,10 @@ Alle endepunkter er HTTP-baserte (JSON inn/ut) og benytter `ISettingsService` ti
     }
   ]
 ]
+```
 
 Eksempel: /Operations/ManualLoadingLift
+```json
 [
   {
     "Location": "LIFT1",
@@ -486,7 +467,10 @@ Eksempel: /Operations/ManualLoadingLift
   }
 ]
 
+```
+
 Eksempel: /Operations/ManualUnloadingLift
+```json
 [
   {
     "Location": "LIFT2",
@@ -501,14 +485,17 @@ Eksempel: /Operations/ManualUnloadingLift
     "SizeId": "5240"
   }
 ]
+```
 
 Eksempel: /Operations/ProductionStorageTransfer
+```json
 {
   "JournalId": "TRX-142076",
   "Barcode": "113798-5240",
   "Total": "5",
   "Usable": "3"
 }
+```
 
 ### SettingsController (`/Settings`)
 
