@@ -528,49 +528,89 @@ Listebaserte nøkler (ManualProductionItems, LiftLoadingList osv.) må initialis
 
 ## Installasjon & kjøring
 
-> **Ukjent:** Vi mangler `Program.cs`, `appsettings*.json` og evt. service-installasjonsskript.  
-> Under er generiske steg – oppdateres når filer er tilgjengelige.
+> 🛠 Status: Delvis kjent – `Program.cs` og `AppEnvironmentConfig` er ikke fullstendig kartlagt.  
+> Under er generiske og realistiske steg, basert på analyserte filer.
 
-### Krav
-- .NET SDK (versjon ukjent – bør spesifiseres)  
-- Nettverkstilgang til robot-IP-ene: `10.5.15.21` (Robot1), `10.5.15.73` (Robot2)  
-- Tilgang til D365 og WMS  
+### 📦 Krav
 
-### Bygg & kjør lokalt (Service-prosjekt)
+- [.NET SDK 7.0+](https://dotnet.microsoft.com/download)  
+- Tilgang til produksjonsnettverket og IP-er:  
+  - Robot1: `10.5.15.21`  
+  - Robot2: `10.5.15.73`
+- Tilkobling mot D365 og WMS må være konfigurert i `appsettings.json`
+
+### 🧪 Lokalt testmiljø
+
+- Sett `AppEnvironmentConfig.Testing = true`  
+- Bruk `SimulationController` til å sette testverdier og signaler manuelt
+- Ingen faktiske signaler sendes
+
+### 🚀 Kjøre lokalt
+
 ```bash
 dotnet restore
 dotnet build
 dotnet run --project LOBGarageDoorProductionControllerService
 ```
+⚙️ Service-installasjon (Windows)
+
+Ukjent – krever videre informasjon om Program.cs og eventuell Windows-tjeneste-oppsett
+Kan kreve bruk av sc.exe eller nssm
+
 
 ## Konfigurasjon
+Systemet benytter `IOptions<AppEnvironmentConfig>` og et runtime-konfigurasjonslag via `ISettingsService`.
+
+
 
 ### AppEnvironmentConfig
-- `Testing` *(bool)* – styrer om `TestSignalsList` brukes i stedet for ekte IO-signaler.  
-
-> **Ukjent:** Andre felter i `AppEnvironmentConfig` er ikke funnet i gjennomgåtte filer. Disse bør dokumenteres når de er tilgjengelige.
+Testing (bool) – aktiverer simulerte signaler via TestSignalsList
+Når true, aktiveres SimulationController og signaler sendes ikke til roboter
 
 ### ISettingsService – runtime state (brukte nøkler)
 
-**Boolsk flagg**
-- `StartAutomaticExecution`, `LiftInactive`, `DoorProductionInactive`, `CheckReturnFeeder`, `ProductionHasStarted`
+Boolean-flagg:
 
-**Tellere/klokker**
-- `skipCount` *(int)*  
-- `skipCountUpdated` *(DateTime)*  
-- `ProductionCycleStart` *(DateTime)*  
-- `ProductionStartTime` *(DateTime)*  
-- `NumberOfDoors` *(int)*  
+-StartAutomaticExecution
 
-**Lister**
-- `ManualProductionItems` : `List<List<ManualProductionItem>>`  
-- `ManualLiftLoadingList` : `List<LiftLoadingInput>`  
-- `LiftLoadingKassettList` : `List<LiftLoadingInput>`  
-- `ManualLiftUnloadingList` : `List<LiftUnloadingInput>`  
-- `ProductionStorageTransferList` : `List<ProductionStorageTransfer>`  
-- `signalsToMonitor` : `List<RobotSignal>`  
+-LiftInactive
 
-> **Viktig:** Alle liste-nøkler bør initialiseres til **tomme lister** ved oppstart, for å unngå `NullReferenceException`.
+-DoorProductionInactive
+
+-CheckReturnFeeder
+
+-ProductionHasStarted
+
+Tidsstempel / tellere:
+
+-skipCount (int)
+
+-skipCountUpdated (DateTime)
+
+-ProductionCycleStart (DateTime)
+
+-ProductionStartTime (DateTime)
+
+-NumberOfDoors (int)
+
+Lister (initieres som tomme!):
+
+-ManualProductionItems : List<List<ManualProductionItem>>
+
+-ManualLiftLoadingList : List<LiftLoadingInput>
+
+-LiftLoadingKassettList : List<LiftLoadingInput>
+
+-ManualLiftUnloadingList : List<LiftUnloadingInput>
+
+-ProductionStorageTransferList : List<ProductionStorageTransfer>
+
+-signalsToMonitor : List<RobotSignal>
+
+⚠️ Viktig: Alle listestrukturer må initialiseres som tomme ved oppstart – ellers oppstår NullReferenceException.
+F.eks. i Startup.cs (hvis tilgjengelig):
+
+_settingsService.SetSetting("ManualProductionItems", new List<List<ManualProductionItem>>());
 
 ### Standard signalsToMonitor (fra ProductionExecutionService)
 
@@ -611,74 +651,130 @@ dotnet run --project LOBGarageDoorProductionControllerService
 
 
 ## Logging & overvåkning
-- `ILoggingService.LogAsync(...)` brukes gjennom hele flyten (oppstart, feil, tidsbruk).  
-- `GET /Operations/GetFeedback` gir tekstlig loggutdrag.  
-- **Ukjent:** Logg-sink (fil/DB/ELK), strukturert logging/tracing.
 
+- Hendelser logges gjennom `ILoggingService.LogAsync(...)`, som kalles i alle hovedsteg:  
+  - Oppstart, signalavvik, statusendringer, feil, tidsbruk m.m.
+
+- Tilgjengelige logger vises via API-endepunktet:  
+  - `GET /Operations/GetFeedback` → returnerer tekstlig loggutdrag (buffer i minne)
+
+- Loggnivå kan konfigureres i `appsettings.json` via:
+```json
+"Logging": {
+  "Level": "Information"
+}
+```
+
+🔎 Ukjent: Hvor loggene faktisk havner (fil, konsoll, ekstern sink) er ikke definert i tilgjengelig kode. Det er heller ingen støtte for strukturert logging eller tracing (ELK/Seq).
 
 ## Tester & CI/CD
-> **Ukjent:** Vi har ikke sett testprosjekter eller pipeline-filer ennå.
+
+> 🔍 Status: Ukjent – det er ikke observert testprosjekter eller pipeline-filer per nå.
+
+Mulige forbedringer:
+
+- **Unit tester** for:
+  - `ProductionExecutionService`
+  - `LiftService`, `RobotFileProcessingService`, `MillingMachineService`
+
+- **Testdekning**: DTO-validering, signalstatus, D365/WMS-integrasjoner
+
+- **CI/CD**:
+  - Bygg og distribusjon via GitHub Actions, Azure DevOps eller TeamCity
+  - Test- og staging-profiler for å isolere `Testing == true` fra produksjon
+
+- **Sikkerhet**:
+  - `SimulationController` bør kun være tilgjengelig i testmiljøer
+  - Ingen autorisasjon er observert i tilgjengelig kontrollerkode
 
 
 ## Feilsøking (kjente fallgruver)
 
-- **Automatisk kjøring starter ikke:**  
-  Sjekk `StartAutomaticExecution == true` og at Robot1-signal  
-  `DOF_OkToSendNewCsvFiles` er `true` (10.5.15.21).
+### 🚫 Automatisk kjøring starter ikke
+- Sjekk `Settings["StartAutomaticExecution"] == true`
+- Verifiser at `DOF_OkToSendNewCsvFilesRob1` er `true` (`R1`: 10.5.15.21)
 
-- **Filer sendes ikke til Robot2:**  
-  Håndtrykk krever `DOF_OkToSendNewCsvFiles` fra Robot2 (10.5.15.73).
+### 📭 Filer sendes ikke til Robot2
+- `DOF_OkToSendNewCsvFilesRob2` må være `true` før `CreateRobot2File(...)` kalles
 
-- **Ikke nok seksjoner i lager:**  
-  Tjenesten logger *“Not enough sections… Please refill storage.”* og øker `skipCount`.
+### 📉 Ikke nok seksjoner i lager
+- Tjenesten logger: _"Not enough sections… Please refill storage."_
+- `skipCount` økes automatisk
 
-- **Null-lister i state:**  
-  Initialiser alle collections i `ISettingsService` ved oppstart.
+### 💥 Null-lister i state
+- `ManualProductionItems`, `LiftLoadingList`, osv. må initialiseres til tomme ved oppstart
+- Ellers → `NullReferenceException` i `GetSetting<List<T>>()`
 
-- **Test vs. produksjon:**  
-  Når `Testing == true`, brukes `TestSignalsList` og `Simulation`-APIet.  
-  I produksjon bør disse deaktiveres.
-
+### 🧪 Testing vs produksjon
+- Når `Testing == true`, brukes `TestSignalsList` i stedet for ekte IO
+- `SimulationController` bør være **deaktivert i produksjon**
 
 ## Veikart / mangler
-- Fullstendig API-skjema (DTO-er) for Lift/Production-objekter.  
-- `appsettings`/Program/hosting (serviceinstallasjon).  
-- Robot-/frese-filformater og filstier.  
-- Database (`DbContext`/migrasjoner/seed).  
-- Logging/tracing-opsjoner.  
-- Autorisasjon og systempålogging på API.  
-- Dokumentere hvor `LiftInactive` brukes i kjeden.
+
+- [ ] Fullstendig `Program.cs` / oppstartsfil
+- [ ] `AppEnvironmentConfig` – komplett struktur
+- [ ] Robot- og fresefilformat (CSV: kolonner, separator, filstier)
+- [ ] DTO-validering og eksempeldata (f.eks. required fields)
+- [ ] Logging – strukturert logg, sink (fil/ELK/konsoll)
+- [ ] `DbContext`, migrasjoner og ev. persistens
+- [ ] Autorisasjon / pålogging til API
+- [ ] CI/CD-definisjoner
+- [ ] Dør fra restlogikk – konfigurasjon, styring og logging
 
 ## Bilag: Signaler som overvåkes (eksempler)
-Opprettes ved oppstart og lagres i `settings["signalsToMonitor"]` (utdrag):
 
-- `DOF_OkToSendNewCsvFiles` (R1: 10.5.15.21, R2: 10.5.15.73)  
-- `DOF_ConfirmLeaveFeederOut`, `DOF_ConfirmFeederReturnInPos`, `DOF_PrintLabel`  
-- `DOF_OrderStarted`, `DOF_OrderDone`, `DOF_UpdatePositionData`, `DOF_ConfirmLeaveElement`  
-- `DOF_MeasurementsConfirmed`, `DOF_ConfirmLeaveScrap`  
-- Løftkommandoer: `DOF_SendLift1Command`, `DOF_SendLift2Command`
+Signaler opprettes og lagres i `Settings["signalsToMonitor"]`. Disse overvåkes kontinuerlig av `ProductionExecutionService`.
 
----
+### 🚦 Typiske DOF-signaler
+
+| Robot | IP         | Signaler |
+|-------|------------|----------|
+| **R1** | 10.5.15.21 | `DOF_ConfirmFeederReturnInPos`, `DOF_ActiveMessages`, `DOF_Port1Start`, `DOF_Port2Start`, `DOF_Port3Start`, `DOF_UpdatePositionData`, `DOF_ConfirmLeaveElement`, `DOF_SendLiftCommand`, `DOF_SendLift2Command` |
+| **R2** | 10.5.15.73 | `DOF_ConfirmLeaveFeederOut`, `DOF_PrintLabel`, `DOF_ActiveMessages`, `DOF_OrderStarted`, `DOF_OrderDone`, `DOF_MeasurementsConfirmed`, `DOF_ConfirmLeaveScrap` |
+
+### 🧪 I testmiljø
+
+Signaler simuleres via `TestSignalsList` og kan styres via `SimulationController`:
+
+```bash
+curl -X POST http://<host>/Simulation/SignalValue/DOF_OkToSendNewCsvFilesRob1 \
+-H "Content-Type: application/json" -d true
+```
 
 ## Bilag: Forretningsregler (utdrag)
 
-- **Precut**: `< 754 mm → Scrap`, `≥ 754 mm → Finished`.  
-- **Rester**: `≥ 2400 mm → retur (lager)`, `1200–2399 mm → retur`, `< 1200 mm → skrot`.  
-- **KASSETT-dører**: Egen precut/klemmer-rapport basert på dørtype og mål.  
-- **Dør fra rest aktiv**: Hvis `DoorProductionInactive == false`; lengdemodul 754 mm.
+- **Precut:**  
+  - `< 754 mm` → `Scrap`  
+  - `≥ 754 mm` → `Finished`
 
----
+- **Rester (returhåndtering):**  
+  - `≥ 2400 mm` → retur til lager (store location)  
+  - `1200–2399 mm` → retur  
+  - `< 1200 mm` → skrot
+
+- **KASSETT-dører:**  
+  - Egen klem- og precut-beregning via `CalculatePreCutKassett(...)` og `CalculateClampsUsed(...)`
+
+- **Dør fra rest aktiv:**  
+  - Hvis `Settings["DoorProductionInactive"] == false`  
+  - Lengdemodul 754 mm → ny produksjonsordre i D365
 
 ## Eksempelflyt (test)
 
 ```bash
-# Slå på auto og simuler at begge roboter er klare:
-curl -X POST http://<host>/Settings/StartStop -H "Content-Type: application/json" -d true
-curl -X POST http://<host>/Simulation/SignalValue/DOF_OkToSendNewCsvFilesRob1 -H "Content-Type: application/json" -d true
-curl -X POST http://<host>/Simulation/SignalValue/DOF_OkToSendNewCsvFilesRob2 -H "Content-Type: application/json" -d true
+# Slå på automatisk kjøring
+curl -X POST http://<host>/Settings/StartStop \
+  -H "Content-Type: application/json" -d true
 
-# Legg inn en manuell batch (skjema ukjent – kun eksempel-placeholder):
+# Simuler at roboter er klare
+curl -X POST http://<host>/Simulation/SignalValue/DOF_OkToSendNewCsvFilesRob1 \
+  -H "Content-Type: application/json" -d true
+
+curl -X POST http://<host>/Simulation/SignalValue/DOF_OkToSendNewCsvFilesRob2 \
+  -H "Content-Type: application/json" -d true
+
+# Legg inn en manuell batch
 curl -X POST http://<host>/Operations/ManualProduction \
   -H "Content-Type: application/json" \
-  -d '[{ /* ManualProductionItem */ }]'
+  -d '[ [ { "ProdId": "116024", "Rawlength": "3050", ... } ] ]'
 ```
