@@ -977,9 +977,9 @@ Denne seksjonen beskriver vanlige problemer og hvordan de kan identifiseres og l
 
 - Har `ISettingsService` blitt initialisert ved oppstart?
 - Alle listebaserte nøkler må settes:
-  ```csharp
+```csharp
   _settingsService.SetSetting("ManualProductionItems", new List<List<ManualProductionItem>>());
- ```
+```
 
 ### ✅ Testing vs produksjon forvirring
 **Symptom:** Systemet sender ikke signaler eller filer i produksjon.  
